@@ -22,7 +22,7 @@ Z0 = HEIGHT / 2.0     # = 7.5 cm
 
 # Sampling ranges
 A_RANGE       = (0.05, 0.6 * DIAMETER)  # cm, amplitude (up to 0.6 × diameter)
-SIGMA_Z_RANGE = (1.0,  5.0)             # cm, axial width
+SIGMA_Z_RANGE = (0.5,  2.0)             # cm, axial width
 SIGMA_T_RANGE = (0.3,  1.5)             # rad, angular width
 RHO_RANGE     = (-0.7, 0.7)             # correlation between z and theta
 
