@@ -28,7 +28,9 @@ from generate_displacement import sample_displacement, Z0, R_INNER, HEIGHT
 BASE_DIR  = os.path.dirname(os.path.abspath(__file__))
 BASE_MESH = os.path.join(BASE_DIR, "base_mesh")
 
-CMAP  = "RdBu_r"                # diverging: blue = stenosis, red = aneurysm
+CMAP2D = "RdBu_r"               # diverging for 2D heatmap
+CMAP3D = "coolwarm"             # diverging for 3D (white→visible on dark bg)
+PANE_COLOR = (0.12, 0.12, 0.12, 1.0)   # dark background for 3D panes
 VLIM  = 0.6 * 2 * R_INNER      # 0.6 × diameter  ≈ 0.776 cm
 VMIN  = -VLIM
 VMAX  =  VLIM
@@ -82,7 +84,7 @@ def _plot_2d(ax, z_unique, t_unique, r_grid, params):
     T_deg = np.degrees(t_unique)
     dr = r_grid - R_INNER
     im = ax.pcolormesh(z_unique, T_deg, dr.T,
-                       cmap=CMAP, shading="nearest", vmin=VMIN, vmax=VMAX)
+                       cmap=CMAP2D, shading="nearest", vmin=VMIN, vmax=VMAX)
     ax.axhline(0,  color="white", lw=0.6, ls="--", label="θ=0")
     ax.axvline(Z0, color="cyan",  lw=0.6, ls="--", label=f"z={Z0}")
     ax.set_xlabel("z (cm)", fontsize=8)
@@ -101,19 +103,30 @@ def _plot_3d(ax, z_unique, t_unique, r_grid, params):
     X_g = r_wrap * np.cos(T_g)
     Y_g = r_wrap * np.sin(T_g)
 
-    # Color by Δr (diverging: blue = stenosis, red = aneurysm)
+    # Color by Δr (diverging: cool = stenosis, warm = aneurysm)
     dr_norm = (r_wrap - R_INNER - VMIN) / (VMAX - VMIN)
     dr_norm = np.clip(dr_norm, 0, 1)
-    fcolors = matplotlib.colormaps[CMAP](dr_norm)
+    fcolors = matplotlib.colormaps[CMAP3D](dr_norm)
 
     ax.plot_surface(X_g, Y_g, Z_g, facecolors=fcolors,
-                    rstride=1, cstride=1, linewidth=0, antialiased=False,
-                    shade=False)
+                    rstride=1, cstride=1, linewidth=0, antialiased=True,
+                    shade=True)
 
-    ax.set_xlabel("x", fontsize=7, labelpad=1)
-    ax.set_ylabel("y", fontsize=7, labelpad=1)
+    # Dark pane backgrounds so the cylinder is visible
+    for pane in (ax.xaxis.pane, ax.yaxis.pane, ax.zaxis.pane):
+        pane.set_facecolor(PANE_COLOR)
+        pane.set_edgecolor("none")
+    ax.set_facecolor(PANE_COLOR)
+
+    # Light tick/label colours for contrast against dark background
+    for axis in (ax.xaxis, ax.yaxis, ax.zaxis):
+        axis.label.set_color("white")
+        axis.set_tick_params(colors="white")
+
+    ax.set_xlabel("x (cm)", fontsize=7, labelpad=1)
+    ax.set_ylabel("y (cm)", fontsize=7, labelpad=1)
     ax.set_zlabel("z (cm)", fontsize=7, labelpad=1)
-    ax.tick_params(labelsize=6)
+    ax.tick_params(labelsize=6, colors="white")
     ax.set_box_aspect([1, 1, 3])
     ax.view_init(elev=20, azim=-60)
     ax.set_title(_param_str(params), fontsize=8)
