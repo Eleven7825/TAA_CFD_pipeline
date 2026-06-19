@@ -28,9 +28,10 @@ from generate_displacement import sample_displacement, Z0, R_INNER, HEIGHT
 BASE_DIR  = os.path.dirname(os.path.abspath(__file__))
 BASE_MESH = os.path.join(BASE_DIR, "base_mesh")
 
-CMAP  = "plasma"
-VMIN  = 0.0
-VMAX  = 0.6 * 2 * R_INNER   # 0.6 × diameter
+CMAP  = "RdBu_r"                # diverging: blue = stenosis, red = aneurysm
+VLIM  = 0.6 * 2 * R_INNER      # 0.6 × diameter  ≈ 0.776 cm
+VMIN  = -VLIM
+VMAX  =  VLIM
 
 
 def _load_interface_grid(base_mesh_dir):
@@ -100,8 +101,8 @@ def _plot_3d(ax, z_unique, t_unique, r_grid, params):
     X_g = r_wrap * np.cos(T_g)
     Y_g = r_wrap * np.sin(T_g)
 
-    # Color by Δr
-    dr_norm = (r_wrap - R_INNER) / VMAX
+    # Color by Δr (diverging: blue = stenosis, red = aneurysm)
+    dr_norm = (r_wrap - R_INNER - VMIN) / (VMAX - VMIN)
     dr_norm = np.clip(dr_norm, 0, 1)
     fcolors = matplotlib.colormaps[CMAP](dr_norm)
 
@@ -136,7 +137,8 @@ def preview(n, seed, out_path):
     fig.suptitle(
         f"Deformed pipe interface  —  z₀={Z0} cm (fixed), θ₀=0 (fixed)\n"
         f"σ_z ∈ [0.5, 2.0] cm   σ_θ ∈ [0.3, 1.5] rad   "
-        f"A ∈ [0.05, {VMAX:.3f}] cm   ρ ∈ [−0.7, 0.7]",
+        f"A ∈ [{VMIN:.3f}, {VMAX:.3f}] cm   ρ ∈ [−0.7, 0.7]"
+        f"   (blue = stenosis, red = aneurysm)",
         fontsize=10,
     )
     gs = gridspec.GridSpec(n_rows, n_cols, figure=fig,

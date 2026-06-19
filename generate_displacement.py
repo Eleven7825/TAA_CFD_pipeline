@@ -1,10 +1,10 @@
 """
-Sample a 2-D multivariate-Gaussian aneurysm bump on the fluid-solid interface
+Sample a 2-D multivariate-Gaussian radial bump on the fluid-solid interface
 and write interface_displacement.dat for the svMultiPhysics lElas mesh solver.
 
-The displacement is purely radial (outward), always centred at theta=0 and
-z=HEIGHT/2.  Shape is controlled by a full 2x2 covariance matrix in (z, theta)
-space, parameterised as (sigma_z, sigma_theta, rho).
+Positive A → aneurysm (outward).  Negative A → stenosis (inward).
+Centre is fixed at theta=0, z=HEIGHT/2.  Shape is controlled by a full 2×2
+covariance matrix in (z, theta) space, parameterised as (sigma_z, sigma_theta, rho).
 """
 
 import os
@@ -21,7 +21,9 @@ DIAMETER = 2.0 * R_INNER
 Z0 = HEIGHT / 2.0     # = 7.5 cm
 
 # Sampling ranges
-A_RANGE       = (0.05, 0.6 * DIAMETER)  # cm, amplitude (up to 0.6 × diameter)
+# Negative A → stenosis; positive A → aneurysm.
+# Lower bound capped at -0.6*R_INNER so the lumen never collapses.
+A_RANGE       = (-0.6 * R_INNER, 0.6 * DIAMETER)  # cm  ≈ (-0.39, 0.78)
 SIGMA_Z_RANGE = (0.5,  2.0)             # cm, axial width
 SIGMA_T_RANGE = (0.3,  1.5)             # rad, angular width
 RHO_RANGE     = (-0.7, 0.7)             # correlation between z and theta
