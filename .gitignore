@@ -1,0 +1,4 @@
+mesh_tube_fsi/
+steady/
+__pycache__/
+*.pyc
