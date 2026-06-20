@@ -3,8 +3,11 @@ Sample a 2-D multivariate-Gaussian radial bump on the fluid-solid interface
 and write interface_displacement.dat for the svMultiPhysics lElas mesh solver.
 
 Positive A → aneurysm (outward).  Negative A → stenosis (inward).
-Centre is fixed at theta=0, z=HEIGHT/2.  Shape is controlled by a full 2×2
-covariance matrix in (z, theta) space, parameterised as (sigma_z, sigma_theta, rho).
+Bump centre theta_0 is uniform over [-pi, pi].
+Bump centre z_0 is Gaussian with mean HEIGHT/2 and std Z0_SIGMA, clamped so
+the Gaussian still fits within the pipe (z_0 in [sigma_z, HEIGHT-sigma_z]).
+Shape is controlled by a full 2×2 covariance matrix in (z, theta) space,
+parameterised as (sigma_z, sigma_theta, rho).
 """
 
 import os
@@ -17,8 +20,9 @@ HEIGHT  = 15.0
 R_INNER = 0.647        # cm
 DIAMETER = 2.0 * R_INNER
 
-# Aneurysm centre — fixed at pipe mid-length, theta=0
-Z0 = HEIGHT / 2.0     # = 7.5 cm
+# Axial centre: Gaussian around pipe mid-point, std = Z0_SIGMA cm
+Z0_MEAN  = HEIGHT / 2.0   # = 7.5 cm
+Z0_SIGMA = 2.0             # cm  — controls how off-centre the bump can be
 
 # Sampling ranges
 # Negative A → stenosis; positive A → aneurysm.
@@ -70,11 +74,18 @@ def sample_displacement(base_mesh_dir, rng):
     sigma_t = rng.uniform(*SIGMA_T_RANGE)
     rho     = rng.uniform(*RHO_RANGE)
 
+    # Axial centre: Gaussian around pipe mid-point, clamped so the bump fits
+    z0 = rng.normal(Z0_MEAN, Z0_SIGMA)
+    z0 = float(np.clip(z0, sigma_z, HEIGHT - sigma_z))
+
+    # Angular centre: uniform over the full circumference
+    theta0 = rng.uniform(-np.pi, np.pi)
+
     z     = pts[:, 2]
     theta = np.arctan2(pts[:, 1], pts[:, 0])
 
-    # Angular distance from theta=0, wrapped to [-pi, pi]
-    d_theta = np.arctan2(np.sin(theta), np.cos(theta))
+    # Angular distance from theta0, wrapped to [-pi, pi]
+    d_theta = np.arctan2(np.sin(theta - theta0), np.cos(theta - theta0))
 
     # Full 2x2 covariance and its inverse
     sz2, st2 = sigma_z ** 2, sigma_t ** 2
@@ -84,7 +95,7 @@ def sample_displacement(base_mesh_dir, rng):
     inv_stt  =  sz2 / det
     inv_szt  = -cov_zt / det
 
-    dz_vec = z - Z0
+    dz_vec = z - z0
     exponent = -0.5 * (inv_szz * dz_vec**2
                        + 2.0 * inv_szt * dz_vec * d_theta
                        + inv_stt * d_theta**2)
@@ -96,7 +107,8 @@ def sample_displacement(base_mesh_dir, rng):
     dz = np.zeros(len(ids))
     disp = np.column_stack([dx, dy, dz])
 
-    params = {"A": A, "sigma_z": sigma_z, "sigma_theta": sigma_t, "rho": rho}
+    params = {"A": A, "sigma_z": sigma_z, "sigma_theta": sigma_t, "rho": rho,
+              "z0": z0, "theta0": theta0}
     return params, ids, disp
 
 
