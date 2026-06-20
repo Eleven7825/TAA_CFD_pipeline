@@ -89,8 +89,9 @@ def main():
             continue
 
         result = np.load(result_path, allow_pickle=True)
-        cfd_coords = result["coords"]   # (672, 3)  Gaussian-displaced positions
-        cfd_wss    = result["wss"]      # (672, 3)  wall shear stress
+        cfd_coords    = result["coords"]     # (672, 3)  Gaussian-displaced positions
+        cfd_wss       = result["wss"]        # (672, 3)  wall shear stress
+        cfd_pressure  = result["pressure"]   # (672,)    pressure
 
         if cfd_wss.shape[1] < 3:
             print(f"  {sample_name}: unexpected WSS shape {cfd_wss.shape}, skipping")
@@ -111,8 +112,13 @@ def main():
             k=args.idw_k, power=args.idw_power
         )  # (672, 3)
 
+        pressure_at_lddmm = idw_interpolate(
+            cfd_coords, cfd_pressure[:, None], lddmm_pts,
+            k=args.idw_k, power=args.idw_power
+        )  # (672, 1)
+
         # --- Validate before saving ---
-        if np.any(np.isnan(wss_at_lddmm)) or np.any(np.isnan(lddmm_pts)):
+        if np.any(np.isnan(wss_at_lddmm)) or np.any(np.isnan(pressure_at_lddmm)) or np.any(np.isnan(lddmm_pts)):
             print(f"  {sample_name}: NaN detected, skipping")
             skipped += 1
             continue
@@ -127,6 +133,7 @@ def main():
         np.savez(
             out_path,
             transformed_values=wss_at_lddmm.astype(np.float64),
+            pressure_values=pressure_at_lddmm.astype(np.float64),
             ref_xyz=lddmm_pts.astype(np.float64),
         )
         saved += 1
