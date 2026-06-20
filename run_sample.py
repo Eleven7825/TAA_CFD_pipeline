@@ -276,11 +276,12 @@ def run(sample_id, seed, out_dir):
     print(f"[{sample_id}] done → {sample_dir}/result.npz")
 
     # 6. Remove large intermediate files to save disk
-    for pattern in ("mesh/stFile_*.bin", "steady/stFile_*.bin",
-                    "steady/steady_00*.vtu"):
-        import glob
-        for f in glob.glob(os.path.join(sample_dir, pattern)):
-            os.remove(f)
+    if not getattr(args, 'keep', False):
+        for pattern in ("mesh/stFile_*.bin", "steady/stFile_*.bin",
+                        "steady/steady_00*.vtu"):
+            import glob
+            for f in glob.glob(os.path.join(sample_dir, pattern)):
+                os.remove(f)
 
 
 if __name__ == "__main__":
@@ -289,6 +290,8 @@ if __name__ == "__main__":
     parser.add_argument("--seed",      type=int, default=42)
     parser.add_argument("--out_dir",   type=str,
                         default=os.path.join(BASE_DIR, "samples"))
+    parser.add_argument("--keep",      action="store_true",
+                        help="keep intermediate VTUs and restart files")
     args = parser.parse_args()
 
     run(args.sample_id, seed=args.seed + args.sample_id, out_dir=args.out_dir)
