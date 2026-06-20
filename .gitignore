@@ -6,3 +6,4 @@ base_mesh/
 samples/
 vtk/
 matchings/
+training_data*/
