@@ -52,19 +52,34 @@ def main():
                              "Defaults to <output_file stem>_basis.npz")
     parser.add_argument("--mode", type=int, default=3,
                         help="Number of SVD modes to keep")
-    parser.add_argument("--case_range", type=int, nargs=2, default=[0, 999],
-                        help="Inclusive range of sample indices to process")
+    parser.add_argument("--case_range", type=int, nargs=2, default=None,
+                        help="Inclusive range of sample indices to process. "
+                             "Omit to scan all sample_XXXXX dirs in matchings_dir.")
     args = parser.parse_args()
 
     print(f"Loading template from: {args.template_vtk}")
     template_points = load_vtk_points(args.template_vtk)
     print(f"Template shape: {template_points.shape}")
 
+    # Build list of sample indices to process
+    if args.case_range is not None:
+        case_start, case_end = args.case_range
+        candidate_ids = list(range(case_start, case_end + 1))
+    else:
+        # Scan matchings_dir for all sample_XXXXX directories
+        import re as _re
+        candidate_ids = sorted(
+            int(m.group(1))
+            for d in os.listdir(args.matchings_dir)
+            for m in [_re.match(r"sample_(\d+)$", d)]
+            if m and os.path.isdir(os.path.join(args.matchings_dir, d))
+        )
+        print(f"Scan mode: found {len(candidate_ids)} sample dirs in {args.matchings_dir}")
+
     dx_list = []
     valid_cases = []
-    case_start, case_end = args.case_range
 
-    for idx in tqdm(range(case_start, case_end + 1), desc="Computing displacements"):
+    for idx in tqdm(candidate_ids, desc="Computing displacements"):
         sample_name = f"sample_{idx:05d}"
         target_vtk = os.path.join(args.matchings_dir, sample_name, args.target_vtk_name)
         if not os.path.exists(target_vtk):
