@@ -1,13 +1,12 @@
 """
-Sample a 2-D multivariate-Gaussian radial bump on the fluid-solid interface
-and write interface_displacement.dat for the svMultiPhysics lElas mesh solver.
+Sample superimposed 2-D multivariate-Gaussian radial bumps on the fluid-solid
+interface and write interface_displacement.dat for the svMultiPhysics lElas
+mesh solver.
 
+N_bumps ~ Uniform(1, N_BUMPS_MAX) bumps are summed per sample.
+Each bump has independent (A, sigma_z, sigma_theta, rho, z0, theta0).
 Positive A → aneurysm (outward).  Negative A → stenosis (inward).
-Bump centre theta_0 is uniform over [-pi, pi].
-Bump centre z_0 is Gaussian with mean HEIGHT/2 and std Z0_SIGMA, clamped so
-the Gaussian still fits within the pipe (z_0 in [sigma_z, HEIGHT-sigma_z]).
-Shape is controlled by a full 2×2 covariance matrix in (z, theta) space,
-parameterised as (sigma_z, sigma_theta, rho).
+The total radial displacement is clamped so the lumen never collapses.
 """
 
 import os
@@ -22,7 +21,7 @@ DIAMETER = 2.0 * R_INNER
 
 # Axial centre: Gaussian around pipe mid-point, std = Z0_SIGMA cm
 Z0_MEAN  = HEIGHT / 2.0   # = 7.5 cm
-Z0_SIGMA = 2.0             # cm  — controls how off-centre the bump can be
+Z0_SIGMA = 1.0             # cm  — controls how off-centre the bump can be
 
 # Sampling ranges
 # Negative A → stenosis; positive A → aneurysm.
@@ -31,6 +30,12 @@ A_RANGE       = (-0.6 * R_INNER, 0.6 * DIAMETER)  # cm  ≈ (-0.39, 0.78)
 SIGMA_Z_RANGE = (0.5,  2.0)             # cm, axial width
 SIGMA_T_RANGE = (0.3,  1.5)             # rad, angular width
 RHO_RANGE     = (-0.7, 0.7)             # correlation between z and theta
+
+# Multi-bump: number of bumps per sample drawn from Uniform(1, N_BUMPS_MAX)
+N_BUMPS_MAX = 3
+
+# Minimum allowed inner radius after summing bumps (prevents lumen collapse)
+R_MIN = 0.2 * R_INNER
 
 
 def _read_interface(base_mesh_dir):
@@ -45,70 +50,71 @@ def _read_interface(base_mesh_dir):
     return ids, pts
 
 
-def sample_displacement(base_mesh_dir, rng):
-    """
-    Sample random aneurysm parameters, compute nodal displacements.
-
-    The bump shape is a 2-D Gaussian in (z, theta) with full covariance:
-
-        Sigma = [[sigma_z^2,              rho*sigma_z*sigma_t],
-                 [rho*sigma_z*sigma_t,    sigma_t^2          ]]
-
-        d_r = A * exp(-0.5 * v^T Sigma^{-1} v),   v = [z - z0, theta]
-
-    Parameters
-    ----------
-    base_mesh_dir : str  path to base_mesh/
-    rng           : np.random.Generator
-
-    Returns
-    -------
-    params : dict  {A, sigma_z, sigma_theta, rho}
-    ids    : (N,)  GlobalNodeID of interface nodes
-    disp   : (N,3) displacement vectors [dx, dy, dz]
-    """
-    ids, pts = _read_interface(base_mesh_dir)
-
+def _single_bump_dr(z, theta, rng):
+    """Sample one bump and return (d_r, bump_params)."""
     A       = rng.uniform(*A_RANGE)
     sigma_z = rng.uniform(*SIGMA_Z_RANGE)
     sigma_t = rng.uniform(*SIGMA_T_RANGE)
     rho     = rng.uniform(*RHO_RANGE)
 
-    # Axial centre: Gaussian around pipe mid-point, clamped so the bump fits
-    z0 = rng.normal(Z0_MEAN, Z0_SIGMA)
-    z0 = float(np.clip(z0, sigma_z, HEIGHT - sigma_z))
-
-    # Angular centre: uniform over the full circumference
+    z0     = float(np.clip(rng.normal(Z0_MEAN, Z0_SIGMA), sigma_z, HEIGHT - sigma_z))
     theta0 = rng.uniform(-np.pi, np.pi)
 
-    z     = pts[:, 2]
-    theta = np.arctan2(pts[:, 1], pts[:, 0])
-
-    # Angular distance from theta0, wrapped to [-pi, pi]
     d_theta = np.arctan2(np.sin(theta - theta0), np.cos(theta - theta0))
+    dz_vec  = z - z0
 
-    # Full 2x2 covariance and its inverse
     sz2, st2 = sigma_z ** 2, sigma_t ** 2
     cov_zt   = rho * sigma_z * sigma_t
-    det      = sz2 * st2 - cov_zt ** 2          # always > 0 for |rho| < 1
+    det      = sz2 * st2 - cov_zt ** 2
     inv_szz  =  st2 / det
     inv_stt  =  sz2 / det
     inv_szt  = -cov_zt / det
 
-    dz_vec = z - z0
     exponent = -0.5 * (inv_szz * dz_vec**2
                        + 2.0 * inv_szt * dz_vec * d_theta
                        + inv_stt * d_theta**2)
-
     d_r = A * np.exp(exponent)
+    params = {"A": A, "sigma_z": sigma_z, "sigma_theta": sigma_t, "rho": rho,
+              "z0": z0, "theta0": theta0}
+    return d_r, params
 
-    dx = d_r * np.cos(theta)
-    dy = d_r * np.sin(theta)
+
+def sample_displacement(base_mesh_dir, rng):
+    """
+    Sample N_bumps superimposed Gaussian bumps, compute nodal displacements.
+
+    N_bumps ~ Uniform(1, N_BUMPS_MAX).  Each bump has independent parameters.
+    The summed radial displacement is clamped so r >= R_MIN (no lumen collapse).
+
+    Returns
+    -------
+    params : dict  {"bumps": [list of per-bump param dicts], "n_bumps": int}
+    ids    : (N,)  GlobalNodeID of interface nodes
+    disp   : (N,3) displacement vectors [dx, dy, dz]
+    """
+    ids, pts = _read_interface(base_mesh_dir)
+
+    z     = pts[:, 2]
+    theta = np.arctan2(pts[:, 1], pts[:, 0])
+
+    n_bumps = int(rng.integers(1, N_BUMPS_MAX + 1))
+    d_r_total = np.zeros(len(ids))
+    bump_params = []
+    for _ in range(n_bumps):
+        d_r, bp = _single_bump_dr(z, theta, rng)
+        d_r_total += d_r
+        bump_params.append(bp)
+
+    # Clamp so lumen never collapses
+    r_deformed  = np.clip(R_INNER + d_r_total, R_MIN, None)
+    d_r_clamped = r_deformed - R_INNER
+
+    dx = d_r_clamped * np.cos(theta)
+    dy = d_r_clamped * np.sin(theta)
     dz = np.zeros(len(ids))
     disp = np.column_stack([dx, dy, dz])
 
-    params = {"A": A, "sigma_z": sigma_z, "sigma_theta": sigma_t, "rho": rho,
-              "z0": z0, "theta0": theta0}
+    params = {"bumps": bump_params, "n_bumps": n_bumps}
     return params, ids, disp
 
 
