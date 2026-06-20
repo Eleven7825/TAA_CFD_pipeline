@@ -46,6 +46,10 @@ def main():
     parser.add_argument("--output_file", type=str,
                         default="coefficient_data.npz",
                         help="Output NPZ file path")
+    parser.add_argument("--basis_file", type=str,
+                        default=None,
+                        help="Output NPZ for SVD basis (Ux, Uy, Uz). "
+                             "Defaults to <output_file stem>_basis.npz")
     parser.add_argument("--mode", type=int, default=3,
                         help="Number of SVD modes to keep")
     parser.add_argument("--case_range", type=int, nargs=2, default=[0, 999],
@@ -96,9 +100,14 @@ def main():
         case_numbers=np.array(valid_cases),
         l_max=args.mode,
     )
-
     print(f"Saved {coefficients.shape} coefficient matrix to {args.output_file}")
     print(f"Cases: {len(valid_cases)}  |  Features per case: {coefficients.shape[1]}")
+
+    # Save SVD basis matrices needed for inference-time projection
+    stem = os.path.splitext(args.output_file)[0]
+    basis_file = args.basis_file if args.basis_file else f"{stem}_basis.npz"
+    np.savez(basis_file, Ux=Ux, Uy=Uy, Uz=Uz)
+    print(f"Saved SVD basis (Ux, Uy, Uz) to {basis_file}")
 
 
 if __name__ == "__main__":
