@@ -10,6 +10,7 @@ function lddmm_register_single(source_vtk, target_vtk, output_dir)
 
 restoredefaultpath
 addpath(genpath('/home/shiyi/fshapesTk/Bin'))
+% Note: source_vtk, target_vtk, output_dir must be absolute paths (supplied by caller)
 
 fprintf('source : %s\n', source_vtk);
 fprintf('target : %s\n', target_vtk);

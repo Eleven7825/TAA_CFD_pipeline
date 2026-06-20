@@ -3,8 +3,9 @@ clear all
 restoredefaultpath
 addpath(genpath('/home/shiyi/fshapesTk/Bin'))
 
-VTK_DIR   = './vtk';
-MATCH_DIR = './matchings';
+SCRIPT_DIR = fileparts(mfilename('fullpath'));
+VTK_DIR    = fullfile(SCRIPT_DIR, 'vtk');
+MATCH_DIR  = fullfile(SCRIPT_DIR, 'matchings');
 
 r = 1.0;
 source = import_fshape_vtk(fullfile(VTK_DIR, 'cylinder.vtk'));

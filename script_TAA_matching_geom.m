@@ -10,8 +10,9 @@ restoredefaultpath
 
 addpath(genpath('/home/shiyi/fshapesTk/Bin'))
 
-VTK_DIR     = './vtk';
-MATCH_DIR   = './matchings';
+SCRIPT_DIR  = fileparts(mfilename('fullpath'));
+VTK_DIR     = fullfile(SCRIPT_DIR, 'vtk');
+MATCH_DIR   = fullfile(SCRIPT_DIR, 'matchings');
 
 %------------%
 %  template  %
