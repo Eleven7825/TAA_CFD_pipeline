@@ -111,6 +111,17 @@ def main():
             k=args.idw_k, power=args.idw_power
         )  # (672, 3)
 
+        # --- Validate before saving ---
+        if np.any(np.isnan(wss_at_lddmm)) or np.any(np.isnan(lddmm_pts)):
+            print(f"  {sample_name}: NaN detected, skipping")
+            skipped += 1
+            continue
+
+        if np.all(wss_at_lddmm == 0):
+            print(f"  {sample_name}: all-zero WSS, skipping")
+            skipped += 1
+            continue
+
         # --- Save ---
         out_path = os.path.join(args.output_dir, f"processed_TAA_data_{idx}.npz")
         np.savez(
