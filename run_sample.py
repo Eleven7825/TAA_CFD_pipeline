@@ -3,7 +3,7 @@
 Single-sample pipeline driver — one SLURM array task.
 
 Usage:
-    python run_sample.py --sample_id 0 [--seed 42] [--out_dir samples/]
+    python run_sample.py --sample_id 0 [--seed 42] [--out_dir samples/] [--hpc]
 """
 
 import argparse
@@ -25,7 +25,19 @@ from generate_displacement import generate
 # Paths
 # ---------------------------------------------------------------------------
 BASE_DIR  = os.path.dirname(os.path.abspath(__file__))
-SOLVER    = "/build-petsc/svMultiPhysics-build/bin/svmultiphysics"
+
+# Local: bare binary; HPC: singularity exec wrapping the PETSc-linked build.
+# Select with --hpc flag at runtime.
+_LOCAL_SOLVER = "/build-petsc/svMultiPhysics-build/bin/svmultiphysics"
+_SIF          = os.path.join(BASE_DIR, "svmultiphysics_sandbox")
+_HPC_SOLVER   = [
+    "/usr/bin/singularity", "exec",
+    "--bind", BASE_DIR + ":" + BASE_DIR,
+    _SIF,
+    "mpirun", "-np", "1", "--mca", "pml", "ob1", "--mca", "btl", "tcp,self",
+    "/build-petsc/svMultiPhysics-build/bin/svmultiphysics",
+]
+
 BASE_MESH = os.path.join(BASE_DIR, "base_mesh")
 MESH_XML  = os.path.join(BASE_DIR, "mesh.xml")          # static template
 PETSC_DIR = os.path.join(BASE_DIR, "in_petsc")
@@ -241,7 +253,8 @@ def extract_results(sample_dir, warped_vol):
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
-def run(sample_id, seed, out_dir):
+def run(sample_id, seed, out_dir, hpc=False):
+    solver = _HPC_SOLVER if hpc else [_LOCAL_SOLVER]
     sample_dir = os.path.join(out_dir, f"sample_{sample_id:05d}")
     os.makedirs(sample_dir, exist_ok=True)
 
@@ -250,7 +263,7 @@ def run(sample_id, seed, out_dir):
     print(f"[{sample_id}] params: {params}")
 
     # 2. Run lElas mesh deformation (cwd = sample_dir; mesh.xml uses ../../ paths)
-    ret = subprocess.run([SOLVER, MESH_XML], cwd=sample_dir,
+    ret = subprocess.run(solver + [MESH_XML], cwd=sample_dir,
                          stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if ret.returncode != 0:
         print(ret.stdout.decode(), ret.stderr.decode(), file=sys.stderr)
@@ -262,7 +275,7 @@ def run(sample_id, seed, out_dir):
 
     # 4. Write per-sample steady XML and run CFD
     steady_xml = write_steady_xml(sample_dir)
-    ret = subprocess.run([SOLVER, steady_xml], cwd=sample_dir,
+    ret = subprocess.run(solver + [steady_xml], cwd=sample_dir,
                          stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if ret.returncode != 0:
         print(ret.stdout.decode(), ret.stderr.decode(), file=sys.stderr)
@@ -292,6 +305,9 @@ if __name__ == "__main__":
                         default=os.path.join(BASE_DIR, "samples"))
     parser.add_argument("--keep",      action="store_true",
                         help="keep intermediate VTUs and restart files")
+    parser.add_argument("--hpc",       action="store_true",
+                        help="Use singularity container (HPC); default uses local binary")
     args = parser.parse_args()
 
-    run(args.sample_id, seed=args.seed + args.sample_id, out_dir=args.out_dir)
+    run(args.sample_id, seed=args.seed + args.sample_id,
+        out_dir=args.out_dir, hpc=args.hpc)

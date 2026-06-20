@@ -8,7 +8,7 @@
 clear all
 restoredefaultpath
 
-addpath(genpath('/home/shiyi/fshapesTk/Bin'))
+addpath(genpath('/home/sc3544/fshapesTk/Bin'))
 
 SCRIPT_DIR  = fileparts(mfilename('fullpath'));
 VTK_DIR     = fullfile(SCRIPT_DIR, 'vtk');
@@ -55,22 +55,43 @@ optim.bfgs.maxit = 30;
 %----------%
 
 sample_dirs = dir(fullfile(VTK_DIR, 'sample_*.vtk'));
+n_samples   = length(sample_dirs);
 
-for k = 1:length(sample_dirs)
+% job array slicing: each SLURM task processes one chunk of samples
+CHUNK = 100;
+task_id = str2double(getenv('SLURM_ARRAY_TASK_ID'));
+if isnan(task_id)
+    k_start = 1;
+    k_end   = n_samples;
+else
+    k_start = task_id * CHUNK + 1;
+    k_end   = min(k_start + CHUNK - 1, n_samples);
+end
+fprintf('Processing samples %d to %d\n', k_start, k_end);
 
-    vtk_file = fullfile(VTK_DIR, sample_dirs(k).name);
-    sample_name = sample_dirs(k).name(1:end-4); % strip .vtk
+parpool('local', 2);
 
-    fprintf('\n[%d/%d] Matching %s\n', k, length(sample_dirs), sample_name);
+parfor k = k_start:k_end
+
+    vtk_file    = fullfile(VTK_DIR, sample_dirs(k).name);
+    sample_name = sample_dirs(k).name(1:end-4);
+
+    saveDir = fullfile(MATCH_DIR, sample_name);
+    if exist(fullfile(saveDir, 'summary.txt'), 'file')
+        fprintf('\n[%d/%d] Skipping %s (already done)\n', k, n_samples, sample_name);
+        continue
+    end
+
+    fprintf('\n[%d/%d] Matching %s\n', k, n_samples, sample_name);
 
     target   = import_fshape_vtk(vtk_file);
     target.x = target.x * r;
 
     [momentums, summary] = match_geom(source, target, defo, objfun, optim);
 
-    saveDir = fullfile(MATCH_DIR, sample_name);
     export_matching_tan(source, momentums, zeros(size(source.f)), target, summary, saveDir);
 
 end
 
+delete(gcp('nocreate'));
 fprintf('\nAll matchings complete.\n');
