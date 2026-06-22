@@ -4,6 +4,7 @@ __pycache__/
 *.pyc
 base_mesh/
 samples/
+samples_fsg/
 vtk/
 matchings/
 training_data*/

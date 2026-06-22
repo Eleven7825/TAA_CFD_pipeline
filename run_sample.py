@@ -19,7 +19,7 @@ from vtk.util.numpy_support import numpy_to_vtk as n2v
 from vtk.util.numpy_support import vtk_to_numpy as v2n
 
 from vtk_functions import read_geo, write_geo
-from generate_displacement import generate
+from generate_displacement import generate, write_displacement_file
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -241,13 +241,33 @@ def extract_results(sample_dir, warped_vol):
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
-def run(sample_id, seed, out_dir):
+def write_precomputed_displacement(sample_dir, disp_npz, disp_index):
+    """
+    Write interface_displacement.dat from a precomputed displacement field
+    (e.g. extracted from an FSG tube, possibly augmented), bypassing the Gaussian
+    sampler.  Uses the same .dat writer as generate_displacement.
+
+    Returns a params dict describing the source.
+    """
+    npz = np.load(disp_npz, allow_pickle=True)
+    ids = npz["ids"]
+    disp = npz["disp"][disp_index]              # (672, 3)
+    out = os.path.join(sample_dir, "interface_displacement.dat")
+    write_displacement_file(out, ids, disp)
+    return {"source": os.path.basename(disp_npz), "disp_index": int(disp_index)}
+
+
+def run(sample_id, seed, out_dir, disp_npz=None, disp_index=None, mesh_only=False):
     sample_dir = os.path.join(out_dir, f"sample_{sample_id:05d}")
     os.makedirs(sample_dir, exist_ok=True)
 
-    # 1. Sample displacement and write interface_displacement.dat
-    params = generate(BASE_MESH, sample_dir, seed=seed)
-    print(f"[{sample_id}] params: {params}")
+    # 1. Write interface_displacement.dat — either Gaussian-sampled or precomputed
+    if disp_npz is not None:
+        params = write_precomputed_displacement(sample_dir, disp_npz, disp_index)
+        print(f"[{sample_id}] precomputed disp: {params}")
+    else:
+        params = generate(BASE_MESH, sample_dir, seed=seed)
+        print(f"[{sample_id}] params: {params}")
 
     # 2. Run lElas mesh deformation (cwd = sample_dir; mesh.xml uses ../../ paths)
     ret = subprocess.run([SOLVER, MESH_XML], cwd=sample_dir,
@@ -259,6 +279,11 @@ def run(sample_id, seed, out_dir):
     # 3. Warp fluid mesh using lElas Displacement output
     mesh_vtu = os.path.join(sample_dir, "mesh", "mesh_001.vtu")
     warped_vol = warp_fluid_mesh(sample_dir, mesh_vtu)
+
+    # mesh_only: stop after generating the fluid mesh (CFD runs in a later stage)
+    if mesh_only:
+        print(f"[{sample_id}] mesh-only done → {sample_dir}/fluid/mesh-complete.mesh.vtu")
+        return
 
     # 4. Write per-sample steady XML and run CFD
     steady_xml = write_steady_xml(sample_dir)
@@ -292,6 +317,19 @@ if __name__ == "__main__":
                         default=os.path.join(BASE_DIR, "samples"))
     parser.add_argument("--keep",      action="store_true",
                         help="keep intermediate VTUs and restart files")
+    parser.add_argument("--no_registration", type=str, default=None,
+                        help="NPZ with precomputed displacement fields disp (N,672,3); "
+                             "use disp[--disp_index] as the interface BC instead of "
+                             "sampling a Gaussian bump.")
+    parser.add_argument("--disp_index", type=int, default=None,
+                        help="Row index into --no_registration disp array.")
+    parser.add_argument("--mesh_only", action="store_true",
+                        help="Stop after generating the fluid mesh (skip CFD).")
     args = parser.parse_args()
 
-    run(args.sample_id, seed=args.seed + args.sample_id, out_dir=args.out_dir)
+    if args.no_registration is not None and args.disp_index is None:
+        parser.error("--no_registration requires --disp_index")
+
+    run(args.sample_id, seed=args.seed + args.sample_id, out_dir=args.out_dir,
+        disp_npz=args.no_registration, disp_index=args.disp_index,
+        mesh_only=args.mesh_only)

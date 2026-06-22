@@ -1,10 +1,19 @@
 #!/usr/bin/env python3
 """
-Compute SVD geometry coefficients from fshapesTk matching outputs.
+Compute SVD geometry coefficients from per-sample displacement fields.
 
-Reads the geodesic shoot endpoints (1-shoot-1.vtk = cylinder, 1-shoot-16.vtk = registered
-target) for each TAA sample, computes the displacement field, and applies SVD reduction
-to produce a coefficient_data.npz consumed by the ShapeOperatorLearning training pipeline.
+Two input modes:
+  * LDDMM (default): reads the geodesic shoot endpoints (1-shoot-1.vtk = cylinder,
+    1-shoot-16.vtk = registered target) for each TAA sample and computes the
+    displacement as target - template.
+  * --no_registration PATH: skips LDDMM entirely and loads precomputed
+    displacement fields disp (N, 672, 3) directly from an NPZ (e.g. produced by
+    extract_fsg_displacements.py / augment_displacements.py).  The svFSGe FSG
+    meshes already share the base-cylinder node correspondence, so no
+    registration is needed.
+
+Either way the SVD reduction below is identical, producing a coefficient_data.npz
+consumed by the ShapeOperatorLearning training pipeline.
 """
 
 import os
@@ -55,7 +64,20 @@ def main():
     parser.add_argument("--case_range", type=int, nargs=2, default=None,
                         help="Inclusive range of sample indices to process. "
                              "Omit to scan all sample_XXXXX dirs in matchings_dir.")
+    parser.add_argument("--no_registration", type=str, default=None,
+                        help="Path to an NPZ with precomputed displacement fields "
+                             "disp (N, 672, 3).  Skips LDDMM and uses these directly.")
     args = parser.parse_args()
+
+    # --- No-registration mode: load displacements directly, skip LDDMM ----------
+    if args.no_registration is not None:
+        print(f"No-registration mode: loading displacements from {args.no_registration}")
+        npz = np.load(args.no_registration, allow_pickle=True)
+        dx = npz["disp"].astype(np.float64)            # (n_cases, n_points, 3)
+        valid_cases = list(range(dx.shape[0]))
+        print(f"Loaded {dx.shape[0]} displacement fields, {dx.shape[1]} nodes")
+        _svd_and_save(dx, valid_cases, args)
+        return
 
     print(f"Loading template from: {args.template_vtk}")
     template_points = load_vtk_points(args.template_vtk)
@@ -100,6 +122,11 @@ def main():
     print(f"Loaded {len(valid_cases)} cases")
 
     dx = np.array(dx_list)                      # (n_cases, n_points, 3)
+    _svd_and_save(dx, valid_cases, args)
+
+
+def _svd_and_save(dx, valid_cases, args):
+    """Apply SVD reduction to displacement stack dx (n_cases, n_points, 3) and save."""
     dx1 = dx[:, :, 0].T                         # (n_points, n_cases)
     dx2 = dx[:, :, 1].T
     dx3 = dx[:, :, 2].T
