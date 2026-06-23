@@ -5,6 +5,8 @@ __pycache__/
 base_mesh/
 samples/
 samples_fsg/
+fsg_results/
+staging_fsg_cfd/
 vtk/
 matchings/
 training_data*/

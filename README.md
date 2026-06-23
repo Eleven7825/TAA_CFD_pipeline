@@ -164,6 +164,54 @@ Also saves `POD_mode_frac.png` showing the energy fraction per SVD mode.
 
 ---
 
+## Alternative pipeline — FSG direct displacement (no LDDMM)
+
+When the geometry comes from an **svFSGe FSG run** (true fluid + mesh solver),
+LDDMM registration (Stage 4) is unnecessary. Each `tube_NNN.vtu` was meshed by
+the same `cylinder.py` generator as `base_mesh`, so its inner-surface nodes
+coincide *exactly* with the base-mesh interface nodes — the FSG `Displacement`
+array already *is* the displacement-from-cylinder, with a built-in node
+correspondence. This replaces Stages 4–5 with a registration-free,
+interpolation-free path.
+
+```
+tube_NNN.vtu  ─[1]─► fsg_displacements.npz ─[2]─► augmented_displacements.npz
+                                                   ├─[3]─► coefficient_data_fsg_m8.npz (+ _basis)
+                                                   └─[4]─► interface_displacement.dat
+                                                            └─[5 CFD]─► result.npz
+                                                                         └─[6 dl][7]─► training_data_fsg/
+```
+
+| Step | Command | Output |
+|---|---|---|
+| 1 | `python extract_fsg_displacements.py --run_dir <svFSGe partitioned_* run>` | `fsg_displacements.npz` `(N,672,3)` |
+| 2 | `python augment_displacements.py --n_aug 500 --alpha 0.3 --scale_range 0.5 1.5` | `augmented_displacements.npz` `(N',672,3)` |
+| 3 | `python coefficients_convert.py --no_registration augmented_displacements.npz --mode 8 --output_file coefficient_data_fsg_m8.npz` | coeffs `(N',24)` + `_basis.npz` |
+| 4 | `python run_sample.py --sample_id K --no_registration augmented_displacements.npz --disp_index K --mesh_only` | per-sample `interface_displacement.dat` (+ lElas fluid mesh) |
+| 5 | (HPC) `sbatch --array=... submit_cfd_array.sh` → `run_sample.py --hpc --skip-geom` | `samples/sample_NNNNN/result.npz` |
+| 6 | `rsync` results back locally → `fsg_results/` | downloaded `result.npz` |
+| 7 | `python prepare_training_data_direct.py` | `training_data_fsg/processed_TAA_data_*.npz` + `coefficient_data_fsg_m8_aligned.npz` |
+
+Key differences from the LDDMM path:
+
+- **Stage 4 (LDDMM) is skipped.** Geometry correspondence is exact by
+  construction; `extract_fsg_displacements.py` asserts it (max NN distance ≈ 0).
+- **`coefficients_convert.py --no_registration`** reads displacement fields
+  directly from an NPZ instead of `matchings/1-shoot-16.vtk`; the SVD/output
+  format is identical.
+- **`run_sample.py --no_registration --disp_index`** writes the lElas BC from a
+  precomputed displacement instead of sampling a Gaussian bump; `--mesh_only`
+  stops after the fluid mesh. On the cluster, `--hpc --skip-geom` consumes an
+  existing `interface_displacement.dat`.
+- **`prepare_training_data_direct.py`** replaces `prepare_training_data.py`:
+  because CFD WSS and the POD encoding share the same 672 base-mesh nodes, it
+  only reorders into the canonical node order — **no IDW interpolation**.
+
+Augmentation (step 2) synthesizes new fields as `s · Σ_k w_k d_k` with Dirichlet
+weights (`--alpha`, smaller = sparser/more amplitude-diverse) and a uniform
+scale (`--scale_range`). FSG coupling sub-iterations lie on one growth
+trajectory, so the POD is near rank-1 and augmentation mainly varies amplitude.
+
 ## Directory structure
 
 ```
@@ -179,12 +227,18 @@ TAA_CFD_pipeline/
 │       ├── 1-shoot-1.vtk       # cylinder start of geodesic
 │       └── 1-shoot-16.vtk      # registered target geometry
 ├── training_data/              # prepared training NPZ files (gitignored)
+├── training_data_fsg/          # FSG direct-displacement training NPZs (gitignored)
+├── fsg_results/                # result.npz downloaded from cluster (gitignored)
 ├── convert_interfaces_to_vtk.py
 ├── script_TAA_matching_geom.m  # full-batch LDDMM script
 ├── script_TAA_matching_600.m   # 600-sample batch script
 ├── prepare_training_data.py    # CFD→LDDMM WSS interpolation
 ├── coefficients_convert.py     # SVD geometry coefficient computation
-└── svd_utils.py                # SVD reduction utility
+├── svd_utils.py                # SVD reduction utility
+│   # --- FSG direct-displacement path (no LDDMM) ---
+├── extract_fsg_displacements.py  # tube_*.vtu inner-surface displacement
+├── augment_displacements.py      # random linear-combination augmentation
+└── prepare_training_data_direct.py  # CFD result → training NPZs (no interpolation)
 ```
 
 ---
