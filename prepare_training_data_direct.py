@@ -76,8 +76,13 @@ def main():
         pressure = r["pressure"][order].astype(np.float64)  # (672,)
         coords = r["coords"][order].astype(np.float64)      # (672, 3)
 
-        if np.any(np.isnan(wss)) or np.any(np.isnan(pressure)) or np.all(wss == 0):
-            print(f"  sample_{sample_id}: NaN or all-zero WSS, skipping")
+        # Reject NaN/inf and physically implausible magnitudes (a diverged CFD
+        # solve on an extreme geometry can emit |WSS| ~1e70 and poison training).
+        if (not np.isfinite(wss).all() or not np.isfinite(pressure).all()
+                or np.all(wss == 0)
+                or np.abs(wss).max() > 1.0 or np.abs(pressure).max() > 10.0):
+            print(f"  sample_{sample_id}: non-finite / all-zero / out-of-range "
+                  f"(|WSS|max={np.abs(wss).max():.3g}), skipping")
             skipped += 1
             continue
 
